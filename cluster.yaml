@@ -1,0 +1,49 @@
+__default__:
+    cpus: "1"
+    time: 60
+    mem: "500m"
+    gpus: 0
+    out: "outErr/{rule}.{wildcards}.o"
+    err: "outErr/{rule}.{wildcards}.e"
+    other: ""
+
+quick_sp:
+    other: "--gres=gpu:k80:1"
+    mem: "50g"
+    time: "24:00:00"
+
+quick_sp_fast:
+    other: "--gres=gpu:k80:1"
+    mem: "20g"
+    time: "24:00:00"
+
+generate_confs:
+    mem: "10g"
+    time: "3:00:00"
+
+ani_refine:
+    other: "--gres=gpu:k80:1"
+    mem: "1g"
+    time: "3:00:00"
+
+ani_energy:
+    other: "--gres=gpu:k80:1"
+    mem: "10g"
+
+quick_optimize:
+    other: "--gres=gpu:k80:1"
+    mem: "30g"
+    time: "48:00:00"
+
+compress:
+    mem: "10g"
+
+autograph:
+    time: "12:00:00"
+
+hpccs:
+    time: "3:00:00"
+    mem: "150g"
+
+starting_structure:
+    time: "3:00:00"

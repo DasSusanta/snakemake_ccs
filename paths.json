@@ -1,0 +1,8 @@
+{
+    "AutoGraph_path": "/mnt/home/dassusan/clusterMethod/agv2/",
+    "HPCCS_path": "/mnt/home/dassusan/hpccs-master3/",
+    "wd_path": "/mnt/home/dassusan/huginv3/Hugin/",
+    "dimorphite": "/mnt/home/dassusan/opt/dimorphite_dl-1.2.4/",
+    "quick_path": "/mnt/home/dassusan/opt/quickv2/QUICK-master/gpu/quick.rc",
+    "mmff":"/mnt/home/dassusan/confSearch/balloon/Linux_64bit-Balloon/MMFF94.mff"
+}

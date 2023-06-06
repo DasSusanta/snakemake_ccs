@@ -1,0 +1,9 @@
+{
+    "consider_adducts_of_charges": [1, -1],
+    "pH_range": [-3.0, 16.0],
+    "max_variants": 1000000000,
+    "consider_up_to_n_models": 10,
+    "generate_up_to_n_confomers": 1000,
+    "run_n_ANI_refinement_jobs": 100,
+    "pool_n_AutoGraph_results": 10
+}
