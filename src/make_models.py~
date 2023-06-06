@@ -1,0 +1,57 @@
+#!/usr/bin/env python
+
+# 2021-04-08
+
+# Kiyoto Aramis Tanemura
+
+# Given hypothesized protonation model, produce 3d model and write out QUICK single point calculation input file.
+# Arg1: path model.smi
+# Arg2: path to output directory
+
+import os, sys
+import pandas as pd
+from ase.io import read 
+from ase.io.xyz import write_xyz
+import os, sys
+import numpy as np
+from rdkit.Chem import MolToMolBlock, SmilesMolSupplier
+from rdkit.Chem.rdmolfiles import MolFromSmiles
+from lib.cleanSMILES import neutralize_sanitize
+from lib.confGen import generateconformations, getMMFFenergiesConf, saveConfMol
+
+if len(sys.argv) == 1:
+    print('accept the energy file to filter high relative energy structures, and output models enumerated in increasing relative energy.')
+    print('Arg1: path to the model.smi')
+    print('Arg2: path to output directory')
+    quit()
+
+adduct = sys.argv[1].split('/')[2]
+
+outpath = sys.argv[2]
+if outpath[-1] != '/':
+    outpath += '/'
+
+# read the smiles 
+with open(sys.argv[1], 'r') as f:
+    smiles = f.readlines()
+smiles = [x.strip() for x in smiles]
+mols = [MolFromSmiles(x) for x in smiles]
+
+for i in range(len(mols)):
+    confs = generateconformations(mols[i], addH = True, numConf=100)
+    energies = getMMFFenergiesConf(confs)
+    confids = [x.GetId() for x in confs.GetConformers()]
+    minEconf = confids[np.argmin(energies)]
+    print(MolToMolBlock(confs, confId=minEconf),file=open(outpath + str(i) + '.mol','w+'))
+    # The charged model is written out. 
+
+    # Now read the structure in ASe just to write out as xyz
+    geom = read(outpath + str(i) + '.mol')
+    with open(outpath + str(i) + '.in', 'w') as f:
+        write_xyz(f, [geom])
+    with open(outpath + str(i) + '.in', 'r') as f:
+        lines = f.readlines()
+    lines[0] = 'DFT B3LYP BASIS=6-31++G(d,p) CUTOFF=1.0d-10 DENSERMS=1.0d-6 ENERGY CHARGE=' + adduct + '\n'
+    lines[1] = '\n'
+    with open(outpath + str(i) + '.in', 'w') as g:
+        g.writelines(lines)

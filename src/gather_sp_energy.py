@@ -1,0 +1,45 @@
+#!/usr/bin/env python                                                                                                         
+
+# 2021-04-08
+
+# Kiyoto Aramis Tanemura
+
+# Retrieve single point energy values from QUICK output files
+# Arg1: directory to QUICK outputs
+
+import os, sys
+import pandas as pd
+import numpy as np
+
+if len(sys.argv) < 2:
+    print('Retrieve single point energy values from QUICK output files ')
+    print('Arg1: directory to QUICK outputs')
+    quit()
+
+inpath = sys.argv[1]
+if inpath[-1] != '/':
+    inpath += '/'
+
+outfiles = [x for x in os.listdir(inpath) if x[-3:] == 'out']
+
+Evals = []
+
+#for i in range(len(outfiles)):
+for thefile in outfiles:
+    with open(inpath + thefile, 'r') as f:
+        lines = f.readlines()
+    energy = [x for x in lines if 'TOTAL ENERGY' in x]
+    energy = energy[0] # get it out of the list
+    if '=' in energy:
+        energy = energy.replace('=', '')
+    energy = energy.split()[-1] # it is reported in the last field
+    energy = float(energy)
+    Evals.append(energy)
+
+rel_e = [x - np.min(Evals) for x in Evals]
+rel_e = [x * 627.5094740631 for x in rel_e]
+df = pd.DataFrame({'energy': rel_e}, index = outfiles)
+df.sort_values(by='energy', inplace = True)
+df.to_csv(inpath + 'energy.csv', sep='\t')
+print(df)
+

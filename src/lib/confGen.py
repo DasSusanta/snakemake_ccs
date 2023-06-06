@@ -1,0 +1,46 @@
+# 2020-11-15
+
+# Kiyoto Aramis Tanemura
+
+# Obtain conformers from an RDKit molecule using its implementation of the ETKDG algorithm
+
+import os
+import numpy as np
+import pandas as pd
+from rdkit.Chem import AddHs, RemoveHs, MolToMolBlock
+from rdkit.Chem.AllChem import MMFFOptimizeMoleculeConfs, EmbedMultipleConfs, MMFFGetMoleculeProperties, MMFFGetMoleculeForceField
+
+def generateconformations(mol, numConf=10, addH = False, maxAttempts = 1000, pruneRmsThresh = 0.1, numThreads = 0):
+    if addH:
+#        mol = RemoveHs(mol)
+        mol = AddHs(mol)
+#    print(mol)
+    cids = EmbedMultipleConfs(mol, numConf, maxAttempts = maxAttempts, pruneRmsThresh = pruneRmsThresh, useRandomCoords=True)
+    res = MMFFOptimizeMoleculeConfs(mol, numThreads)
+    return mol
+
+def getMMFFenergiesConf(mol):
+    energies = []
+    mp = MMFFGetMoleculeProperties(mol)
+    for conf in mol.GetConformers():
+        ff= MMFFGetMoleculeForceField(mol, mp, confId=conf.GetId())
+        E = ff.CalcEnergy()
+        energies.append(E)
+    return energies
+    
+def saveConfMol(m, outpath = './'):
+    # Prepare outpath directory
+    if not os.path.exists(outpath):
+        os.system('mkdir '+outpath)
+    if outpath[-1] !='/':
+        outpath = outpath + '/'
+    confIds = [x.GetId() for x in m.GetConformers()]
+    E = getMMFFenergiesConf(m)
+    outDf = pd.DataFrame({'energy': E}, index = confIds)
+    with open(outpath + 'energy.csv', 'w') as f:
+        outDf.to_csv(f)
+    for id in confIds:
+        print(MolToMolBlock(m, confId=id),file=open(outpath+str(id)+'.mol','w+'))
+
+
+

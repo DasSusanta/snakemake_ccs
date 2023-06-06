@@ -1,0 +1,54 @@
+#!/usr/bin/env python                                                                                                                                                                                
+
+# 2021-04-06
+
+# Kiyoto Aramis Tanemura
+
+# After charged metabolite SMILES have been obtained, generate conformers using RDKit's implementation of the ETKDG algorithm.
+# Arg1: path to model.smi
+# Arg2: Number of top models to consider (default "1")
+# Arg3: Number of maximum conformers (default "1000")
+
+import os, sys
+import numpy as np
+from rdkit.Chem.rdmolfiles import MolFromMolFile, MolFromSmiles, MolToSmiles
+
+from lib.confGen import generateconformations, getMMFFenergiesConf, saveConfMol
+
+if len(sys.argv) == 1:
+    print("generate_conformers.py is an executable script which generates conformers using RDKit's ETKDG algorithm")
+    print('Arg1: path to model.smi')
+    print('Arg2: Number of top models to consider (default "1")')
+    print('Arg3: Number of maximum conformers (default "1000")')
+    quit()
+elif len(sys.argv) == 2:
+    num_models = 1
+    num_confs = 1000
+elif len(sys.argv) == 3:
+    num_models = int(sys.argv[2])
+    num_confs = 1000
+else:
+    num_models = int(sys.argv[2])
+    num_confs = int(sys.argv[3])
+
+wdpath = "/".join(sys.argv[1].split('/')[:-1]) + '/'
+
+# read the smiles
+with open(sys.argv[1], 'r') as f:
+    smiles = f.readlines()
+smiles = [x.strip() for x in smiles]
+problem_indices = [x for x in range(len(smiles)) if 'Warning' in smiles[x]]
+for theIndex in list(problem_indices): # Copy a list so that we don't dynamically modify the list
+    problem_indices.append(theIndex + 1)
+smiles = [smiles[x] for x in range(len(smiles)) if x not in problem_indices]
+
+# for the specified number of models
+for i in range(np.min([len(smiles), num_models])):
+    if not os.path.isdir(wdpath + 'generated_conformers/model' + str(i)):
+        os.mkdir(wdpath + 'generated_conformers/model' + str(i))
+    if os.path.isfile(wdpath + 'generated_conformers/model' + str(i) + '/0.mol'):
+        continue
+    mol = MolFromSmiles(smiles[i])
+    # Generate specified number of conformers and save them to the output
+    confs = generateconformations(mol, numConf = num_confs, addH = True)
+    saveConfMol(confs, wdpath + 'generated_conformers/model' + str(i) + '/')
