@@ -1,0 +1,109 @@
+import os
+import pandas as pd
+
+with open('arguments.json', 'r') as f:
+    args = json.load(f)
+
+ani_parallelize = args['run_n_ANI_refinement_jobs']
+
+df = pd.read_csv('data/input.smi', delimiter = '\t', names = ['hmdb_id', 'smiles'])
+ids = df['hmdb_id'].tolist()
+targets = []
+models = {}
+for theID in ids:
+    models[theID] = {}
+    for thecharge in os.listdir('results/' + theID):
+    	models[theID][thecharge] = set([x.replace('.tar.gz', '') for x in os.listdir('results/' + theID + '/' + thecharge + '/generated_conformers/')])
+    	for themodel in models[theID][thecharge]:
+            targets.append('results/' + theID + '/' + thecharge + '/optimized_conformers/model0.tar.gz')
+
+rule all:
+     input: targets
+rule mkdir_optimized_conformers:
+     input: "results/{hmdb_id}/{adduct}/generated_conformers/{model}/0.mol"
+     output: temp(["results/{hmdb_id}/{adduct}/optimized_conformers/{model}/done" + str(i) for i in range(ani_parallelize)])
+     params: ani_jobs = ani_parallelize
+     shell:
+            """
+            mkdir -p results/{wildcards.hmdb_id}/{wildcards.adduct}/optimized_conformers
+            mkdir -p results/{wildcards.hmdb_id}/{wildcards.adduct}/optimized_conformers/{wildcards.model}
+	    anijobs={params.ani_jobs}
+            for i in $(eval echo {{0..$(($anijobs-1))}}); do
+                touch results/{wildcards.hmdb_id}/{wildcards.adduct}/optimized_conformers/{wildcards.model}/done$i
+            done
+            """
+
+rule ani_refine:
+     input: "results/{hmdb_id}/{adduct}/optimized_conformers/{model}/done{num}"
+     output: temp("results/{hmdb_id}/{adduct}/optimized_conformers/{model}/hecho{num}")
+     shell: """
+            src/torchani_refine.py results/{wildcards.hmdb_id}/{wildcards.adduct}/generated_conformers/{wildcards.model}/ results/{wildcards.hmdb_id}/{wildcards.adduct}/optimized_conformers/{wildcards.model}/
+	    find results/{wildcards.hmdb_id}/{wildcards.adduct}/optimized_conformers/{wildcards.model}/*.xyz -empty -type f -delete
+            touch {output}
+            """
+
+rule ani_energy:
+     input: lambda wildcards: expand("results/{hmdb_id}/{adduct}/optimized_conformers/{model}/hecho{num}", hmdb_id=wildcards.hmdb_id, adduct=wildcards.adduct, model=wildcards.model, num=range(ani_parallelize))
+     output: "results/{hmdb_id}/{adduct}/optimized_conformers/{model}/energy.csv"
+     shell:
+            """
+            src/torchani_energy.py results/{wildcards.hmdb_id}/{wildcards.adduct}/optimized_conformers/{wildcards.model}/
+            """
+
+rule autograph:
+     input: "results/{hmdb_id}/{adduct}/optimized_conformers/{model}/energy.csv"
+     output: "results/{hmdb_id}/{adduct}/clustered_conformers/{model}/{rep}/cluster_summary.csv"
+     shell:
+            """
+            mkdir -p results/{wildcards.hmdb_id}/{wildcards.adduct}/clustered_conformers/
+	    mkdir -p results/{wildcards.hmdb_id}/{wildcards.adduct}/clustered_conformers/{wildcards.model}
+            src/autograph.py results/{wildcards.hmdb_id}/{wildcards.adduct}/optimized_conformers/{wildcards.model}/ results/{wildcards.hmdb_id}/{wildcards.adduct}/clustered_conformers/{wildcards.model}/{wildcards.rep}/ results/{wildcards.hmdb_id}/{wildcards.adduct}/optimized_conformers/{wildcards.model}/energy.csv
+            """ # modify autograph.py to run AG once, not ten times in a for-loop
+
+rule pool_autograph:
+     input: lambda wildcards: expand("results/{hmdb_id}/{adduct}/clustered_conformers/{model}/{rep}/cluster_summary.csv", hmdb_id=wildcards.hmdb_id, adduct=wildcards.adduct, model=wildcards.model, rep=range(args['pool_n_AutoGraph_results']))
+     output: "results/{hmdb_id}/{adduct}/clustered_conformers/{model}/centroids.csv"
+     shell: 
+    	    """
+	    src/pool_autograph.py results/{wildcards.hmdb_id}/{wildcards.adduct}/clustered_conformers/{wildcards.model}/
+	    """
+
+#############
+
+rule write_centroid_sp:
+     input: "results/{hmdb_id}/{adduct}/clustered_conformers/{model}/centroids.csv"
+     output: directory("results/{hmdb_id}/{adduct}/ensemble_fast/{model}/")
+     shell:
+            """
+            mkdir -p results/{wildcards.hmdb_id}/{wildcards.adduct}/ensemble_fast/
+            mkdir -p results/{wildcards.hmdb_id}/{wildcards.adduct}/ensemble_fast/{wildcards.model}
+            src/write_sp.py results/{wildcards.hmdb_id}/{wildcards.adduct}/clustered_conformers/{wildcards.model}/centroids/ results/{wildcards.hmdb_id}/{wildcards.adduct}/ensemble_fast/{wildcards.model}/
+            """
+
+rule write_quick_optimiztion:
+     input: "results/{hmdb_id}/{adduct}/clustered_conformers/{model}/centroids.csv"
+     output: directory("results/{hmdb_id}/{adduct}/ensemble/{model}/")
+     shell:
+            """
+            mkdir -p results/{wildcards.hmdb_id}/{wildcards.adduct}/ensemble/
+            mkdir -p results/{wildcards.hmdb_id}/{wildcards.adduct}/ensemble/{wildcards.model}
+            src/write_geom_opt.py {input} results/{wildcards.hmdb_id}/{wildcards.adduct}/ensemble/{wildcards.model}/
+            """
+
+rule compress:
+     input: lambda wildcards: expand("results/{hmdb_id}/{adduct}/ensemble_fast/{model}/", hmdb_id=wildcards.hmdb_id, adduct=wildcards.adduct, model=models[wildcards.hmdb_id][wildcards.adduct]), 
+     	    lambda wildcards: expand("results/{hmdb_id}/{adduct}/ensemble/{model}/", hmdb_id=wildcards.hmdb_id, adduct=wildcards.adduct, model=models[wildcards.hmdb_id][wildcards.adduct])
+     output: "results/{hmdb_id}/{adduct}/optimized_conformers/model0.tar.gz"
+     shell:
+            """
+            cd results/{wildcards.hmdb_id}/{wildcards.adduct}/optimized_conformers/
+            for d in *; do
+                    if [[ -d $d ]]; then
+                            tar -zcvf "$d".tar.gz $d
+                            rm -r $d
+                    fi
+                    if [[ -d ../generated_conformers/$d ]]; then
+                            rm -r ../generated_conformers/$d
+                    fi
+            done
+            """

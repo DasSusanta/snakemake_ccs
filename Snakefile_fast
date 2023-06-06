@@ -1,0 +1,76 @@
+import os
+import pandas as pd
+
+with open('paths.json', 'r') as f:
+    paths = json.load(f)
+
+with open('arguments.json', 'r') as g:
+    args = json.load(g)
+
+df = pd.read_csv('data/input.smi', delimiter = '\t', names = ['hmdb_id', 'smiles'])
+ids = df['hmdb_id'].tolist()
+targets = []
+systems = {}
+for theID in ids:
+    systems[theID] = {}
+    for thecharge in os.listdir('results/' + theID):
+        if thecharge not in [str(x) for x in args['consider_adducts_of_charges']]:
+            continue
+        systems[theID][thecharge] = {}
+        for themodel in set([x.replace('.tar.gz', '') for x in os.listdir('results/' + theID + '/' + thecharge + '/generated_conformers/')]):
+            centroids = pd.read_csv('results/' + theID + '/' + thecharge + '/clustered_conformers/' + themodel + '/centroids.csv', index_col = 0)
+            systems[theID][thecharge][themodel] = [x.split('.')[0] for x in centroids.index]
+            targets.append('results/' + theID + '/' + thecharge + '/ensemble_fast/' + themodel + '/ccs.txt')
+#            for centroid in systems[theID][thecharge][themodel]:
+#                targets.append('results/' + theID + '/' + thecharge + '/ensemble_fast/' + themodel + '/' + centroid + '.pqr')
+
+with open('paths.json', 'r') as f:
+    paths = json.load(f)
+
+rule all:
+     input: targets
+
+rule quick_sp:
+     input: "results/{hmdb_id}/{adduct}/ensemble_fast/{model}/{num}.in"
+     output: "results/{hmdb_id}/{adduct}/ensemble_fast/{model}/{num}.out"
+     params: quick_path = paths['quick_path']
+     shell: """
+            module load CUDA/10.0.130
+            source {params.quick_path}
+            cd results/{wildcards.hmdb_id}/{wildcards.adduct}/ensemble_fast/{wildcards.model}/
+	    quick.cuda {wildcards.num}.in
+            """
+
+rule gather_sp:
+     input: lambda wildcards: expand("results/{hmdb_id}/{adduct}/ensemble_fast/{model}/{num}.out", hmdb_id = wildcards.hmdb_id, adduct = wildcards.adduct, model = wildcards.model, num = systems[wildcards.hmdb_id][wildcards.adduct][wildcards.model])
+     output: "results/{hmdb_id}/{adduct}/ensemble_fast/{model}/energy.csv"
+     shell:
+            """
+	    src/gather_sp_energy.py results/{wildcards.hmdb_id}/{wildcards.adduct}/ensemble_fast/{wildcards.model}/
+	    """
+
+rule sp_out2pqr:
+     input: "results/{hmdb_id}/{adduct}/ensemble_fast/{model}/{num}.out"
+     output: "results/{hmdb_id}/{adduct}/ensemble_fast/{model}/{num}.pqr"
+     shell: 
+     	    """
+	    src/sp_out2pqr.py {input}
+	    """
+
+rule hpccs:
+     input: "results/{hmdb_id}/{adduct}/ensemble_fast/{model}/{num}.pqr"
+     output: "results/{hmdb_id}/{adduct}/ensemble_fast/{model}/{num}.hpccs"
+     params: hpccs = paths['HPCCS_path'],
+             wdpath = paths['wd_path']
+     shell: """
+            cd {params.hpccs}
+	    ./hpccs {params.wdpath}results/{wildcards.hmdb_id}/{wildcards.adduct}/ensemble_fast/{wildcards.model}/{wildcards.num}.pqr > {params.wdpath}{output}
+            """
+
+rule model_results:
+     input: lambda wildcards: expand("results/{hmdb_id}/{adduct}/ensemble_fast/{model}/{num}.hpccs", hmdb_id = wildcards.hmdb_id, adduct = wildcards.adduct, model = wildcards.model, num = systems[wildcards.hmdb_id][wildcards.adduct][wildcards.model])
+     output: "results/{hmdb_id}/{adduct}/ensemble_fast/{model}/ccs.txt"
+     shell:
+            """
+            src/model_results_intermediate.py results/{wildcards.hmdb_id}/{wildcards.adduct}/ensemble_fast/{wildcards.model}/
+            """

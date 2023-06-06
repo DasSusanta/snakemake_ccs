@@ -1,0 +1,77 @@
+import os
+import json
+import pandas as pd
+import ase.io
+
+# get target filenames and import paths for software.
+
+df = pd.read_csv('data/input.smi', delimiter = '\t', names = ['hmdb_id', 'smiles'])
+ids = df['hmdb_id'].tolist()
+targets = []
+for theID in ids:
+    for thecharge in os.listdir('results/' + theID):
+        targets.append('results/' + theID + '/' + thecharge + '/generated_conformers/model0.tar.gz')
+
+with open('paths.json', 'r') as f:
+    paths = json.load(f)
+
+with open('arguments.json', 'r') as f:
+    args = json.load(f)
+
+
+ionized_models = {}
+for theID in ids:
+    ionized_models[theID] = {}
+    for thecharge in os.listdir('results/' + theID):
+    	ionized_models[theID][thecharge] = len([x for x in os.listdir('results/' + theID + '/' + thecharge + '/site_screen/') if x[-2:] == 'in'])
+
+# Snakemake rules
+
+rule all:
+     input: targets
+
+rule site_screen_energy:
+     input: lambda wildcards: expand("results/{hmdb_id}/{adduct}/site_screen/{num}.out", hmdb_id=wildcards.hmdb_id, adduct=wildcards.adduct, num=range(ionized_models[wildcards.hmdb_id][wildcards.adduct]))
+     output: "results/{hmdb_id}/{adduct}/site_screen/energy.csv"
+     shell: """
+     	    src/gather_quick_energy.py results/{wildcards.hmdb_id}/{wildcards.adduct}/site_screen/
+     	    """
+
+rule charged_models:
+     input: "results/{hmdb_id}/{adduct}/site_screen/energy.csv"
+     output: "results/{hmdb_id}/{adduct}/charged_model.smi"
+     shell: """
+     	    src/charged_model_smiles.py {input} results/{wildcards.hmdb_id}/{wildcards.adduct}/model.smi
+     	    """
+
+rule generate_confs:
+     input: "results/{hmdb_id}/{adduct}/charged_model.smi"
+     output: "results/{hmdb_id}/{adduct}/generated_conformers/model0/0.mol"
+     params: conf_num = args['generate_up_to_n_confomers']
+     shell: 
+     	    """
+	    mkdir -p results/{wildcards.hmdb_id}/{wildcards.adduct}/generated_conformers
+	    src/generate_conformers.py {input} 10 {params.conf_num}
+	    """
+
+rule quick_sp:
+     input: "results/{hmdb_id}/{adduct}/site_screen/{num}.in"
+     output: "results/{hmdb_id}/{adduct}/site_screen/{num}.out"
+     params: quick_path = paths['quick_path']
+     shell: """
+            module load CUDA/10.0.130
+            source {params.quick_path}
+            cd results/{wildcards.hmdb_id}/{wildcards.adduct}/site_screen/
+            quick.cuda {wildcards.num}.in
+     	    """
+
+rule compress:
+     input: "results/{hmdb_id}/{adduct}/generated_conformers/model0/0.mol"
+     output: "results/{hmdb_id}/{adduct}/generated_conformers/model0.tar.gz"
+     shell: 
+     	    """
+	    cd results/{wildcards.hmdb_id}/{wildcards.adduct}/generated_conformers/
+	    for d in *; do
+	    	tar -zcvf "$d".tar.gz $d
+	    done
+	    """

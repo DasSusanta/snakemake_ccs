@@ -1,0 +1,30 @@
+import os
+import json
+import pandas as pd
+import ase.io
+
+# get target filenames and import paths for software.
+
+df = pd.read_csv('data/input.smi', delimiter = '\t', names = ['hmdb_id', 'smiles'])
+ids = df['hmdb_id'].tolist()
+targets = []
+for theID in ids:
+    for thecharge in os.listdir('results/' + theID):
+        targets.append('results/' + theID + '/' + thecharge + '/site_screen/0.in')
+
+with open('paths.json', 'r') as f:
+    paths = json.load(f)
+
+# Snakemake rules
+
+rule all:
+     input: targets
+
+rule starting_structure:
+     input: "results/{hmdb_id}/{adduct}/model.smi"
+     output: "results/{hmdb_id}/{adduct}/site_screen/0.in"
+     shell: 
+     	    """
+	    mkdir -p results/{wildcards.hmdb_id}/{wildcards.adduct}/site_screen
+	    src/make_models.py {input} results/{wildcards.hmdb_id}/{wildcards.adduct}/site_screen/
+	    """
